@@ -148,8 +148,8 @@ while True:
     #print(links_to_scrape)
 
 
-    ## TODO: Right now if a page isn't in English we still store the links in that page (they probably are unlikely to also be in Egnlish) so we need to talk abaout whether we still want to queue those links
-    if len(links_to_scrape) > 1:
+    ## TODO: Right now if a page isn't in English we still store the links in that page (they probably are unlikely to also be in English) so we need to talk abaout whether we still want to queue those links
+    if links_to_scrape != None and len(links_to_scrape) > 1:
         # links_to_scrape is a list of two [links, False] if the page wasn't in English, we set the variable back to the links and make a flag saying that the page wasn't in English, usung that flag in the final print at the end of the loop
         links_to_scrape = links_to_scrape[0]
         page_not_in_english = True

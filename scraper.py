@@ -22,7 +22,7 @@ import csv
 import signal
 from typing import Optional
 
-USER_AGENT = "StultusSearchEngine/1.0 (+https://github.com/ThisIsNotANamepng/search_engine; hagenjj4111@uwec.edu)"
+USER_AGENT = "StultusSearchEngine/1.0 (+https://stultus.rip; crawler@stultus.rip)"
 DEBUG_BREAKPOINT_TIMER = time.time()
 # Look for the DEBUG shell varialbe and set a global variable to True or false base don whether it was passed
 DEBUG = "DEBUG" in os.environ
