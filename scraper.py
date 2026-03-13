@@ -253,6 +253,7 @@ def create_database():
     CREATE TABLE IF NOT EXISTS urls (
         url VARCHAR(2048) NOT NULL UNIQUE,
         id INT NOT NULL DEFAULT nextval('urls_id_seq') PRIMARY KEY
+        reference_count INT NOT NULL DEFAULT 1
     );
     CREATE TABLE IF NOT EXISTS urls_references (
         url VARCHAR(2048) NOT NULL PRIMARY KEY,
@@ -269,6 +270,14 @@ def create_database():
     CREATE TABLE IF NOT EXISTS entity_urls (
         url VARCHAR(2048) NOT NULL PRIMARY KEY,
         entity_url INT NOT NULL
+    );
+                
+    CREATE TABLE IF NOT EXISTS url_token_counts (
+        url_id INT PRIMARY KEY REFERENCES urls(id),
+        word_count INT NOT NULL,
+        bigram_count INT NOT NULL DEFAULT 0,
+        trigram_count INT NOT NULL DEFAULT 0,
+        prefix_count INT NOT NULL DEFAULT 0
     );
                 
 
@@ -591,12 +600,15 @@ def store(url, timeout=None):
     # A list of the links in the scraped page
     links = cleaned
 
-    # tokens: [words, bigrams, trigrams, prefixes]
-    words = set(tokens[0]) if tokens and len(tokens) > 0 else set()
-    bigrams = set(tokens[1]) if tokens and len(tokens) > 1 else set()
-    trigrams = set(tokens[2]) if tokens and len(tokens) > 2 else set()
-    prefixes = set(tokens[3]) if tokens and len(tokens) > 3 else set()
-
+    # tokens: [word_list, bigram_list, trigram_list, prefix_list, words, bigrams, trigrams, prefixes]
+    word_list = tokens[0] if tokens and len(tokens) > 0 else []
+    bigram_list = tokens[1] if tokens and len(tokens) > 1 else []
+    trigram_list = tokens[2] if tokens and len(tokens) > 2 else []
+    prefix_list = tokens[3] if tokens and len(tokens) > 3 else []
+    words = set(word_list)
+    bigrams = set(bigram_list)
+    trigrams = set(trigram_list)
+    prefixes = set(prefix_list)
     debug_print("Cleaned links and split tokens into words, bigrams, trigrams, prefixes")
 
 
@@ -615,6 +627,24 @@ def store(url, timeout=None):
     else:
         cur.execute("SELECT id FROM urls WHERE url = %s;", (url,))
         url_id = cur.fetchone()[0]
+
+
+    cur.execute("""
+        INSERT INTO url_token_counts (url_id, word_count, bigram_count, trigram_count, prefix_count)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (url_id)
+        DO UPDATE SET
+            word_count = EXCLUDED.word_count,
+            bigram_count = EXCLUDED.bigram_count,
+            trigram_count = EXCLUDED.trigram_count,
+            prefix_count = EXCLUDED.prefix_count;
+    """, (
+        url_id,
+        len(word_list),
+        len(bigram_list),
+        len(trigram_list),
+        len(prefix_list)
+    ))
     
     #print("Ececuted into db fine")
 
