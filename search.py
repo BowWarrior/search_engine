@@ -59,7 +59,7 @@ def search(query):
         WITH
         word_matches AS (
             SELECT wu.url_id,
-                COUNT(*) * 10000 AS word_score --for each word match to the search on a website, it gives a 20x scalar 
+                COUNT(*) * 20 AS word_score --for each word match to the search on a website, it gives a 20x scalar 
             FROM word_urls wu
             JOIN words w ON w.id = wu.word_id
             WHERE w.word = ANY(%s)
@@ -87,7 +87,7 @@ def search(query):
         prefix_matches AS (
             SELECT 
                 pu.url_id,
-                    COUNT(*) * 1 AS prefix_score --gives 10x scalar when a prefix match is detected for each prefix on a website
+                    COUNT(*) * 2 AS prefix_score --gives 10x scalar when a prefix match is detected for each prefix on a website
             FROM prefix_urls pu
             JOIN prefixes p ON p.id = pu.prefix_id
             WHERE p.prefix = ANY(%s)
