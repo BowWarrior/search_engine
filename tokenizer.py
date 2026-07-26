@@ -110,11 +110,12 @@ def clean(text):
     text = text.lower()
     cleaned_text = []
 
+    punctuation_table = str.maketrans('', '', string.punctuation)
     for i in text.split():
-        if is_all_lowercase(i):
-            cleaned_word = i.translate(str.maketrans('', '', string.punctuation))
-            cleaned_text.append(cleaned_word)        
-    
+        cleaned_word = i.translate(punctuation_table)
+        if cleaned_word and is_all_lowercase(cleaned_word):
+            cleaned_text.append(cleaned_word)
+
     return [item for item in cleaned_text if item not in STOP_WORDS]
 
 def tokenize_all(text):

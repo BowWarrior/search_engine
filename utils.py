@@ -51,6 +51,11 @@ URL = ""
 # Chunk size for sending page text to the web text storage server
 WEB_STORAGE_CHUNK_SIZE = 64 * 1024
 
+# Postgres columns have length limits, we set them in creating the database and we only send data reduced to the maximum length so we don't crash on the postgres end
+MAX_URL_LENGTH = 2048  # urls.url, url_queue.url, urls_references.*, icon_link
+MAX_TITLE_LENGTH = 128  # urls.title
+MAX_TOKEN_LENGTH = 64  # words.word, prefixes.prefix
+
 class CSVTracker:
     def __init__(self, filename: str = "timing.csv"):
         self.filename = filename
@@ -239,7 +244,7 @@ def get_conn():
     if database_url:
         return psycopg2.connect(database_url)
     else:
-        failure_print("Failed to connect to server")
+        failure_print("No DATABASE_URL set, not connecting to server")
 
     #return psycopg2.connect(host=host, port=port, user=user, password=password, dbname=dbname)
 
@@ -279,8 +284,9 @@ def create_database():
         reference_count INT NOT NULL DEFAULT 1
     );
     CREATE TABLE IF NOT EXISTS urls_references (
-        url VARCHAR(2048) NOT NULL PRIMARY KEY,
-        referenced_domain VARCHAR(2048) NOT NULL
+        url VARCHAR(2048) NOT NULL,
+        referenced_domain VARCHAR(2048) NOT NULL,
+        PRIMARY KEY (url, referenced_domain)
     );
     CREATE TABLE IF NOT EXISTS entities (
         entity_text VARCHAR(2048) NOT NULL PRIMARY KEY,
@@ -357,7 +363,18 @@ def populate_static_ngrams():
     chars = string.ascii_lowercase
     conn = get_conn()
     cur = conn.cursor()
-    
+
+    # AI MADE (this cur.execute line)
+    # Skip if already populated. This runs on EVERY scraper startup, and postgres
+    # consumes a sequence number for each attempted row even when ON CONFLICT DO
+    # NOTHING inserts nothing — enough scraper restarts overflowed the INT id
+    # columns fleet-wide ("integer out of range"). Only insert on a fresh database.
+    cur.execute("SELECT (SELECT COUNT(*) FROM bigrams) >= %s AND (SELECT COUNT(*) FROM trigrams) >= %s;", (len(chars) ** 2, len(chars) ** 3))
+    if cur.fetchone()[0]:
+        cur.close()
+        conn.close()
+        return
+
     # bigram crap
     bigram_values = [(''.join(b),) for b in itertools.product(chars, repeat=2)]
 
@@ -465,7 +482,10 @@ def extract_data_from_html(body, url):
         if href:
             # Convert to absolute URL
             icon_link = urljoin(url, href)
-        
+        else:
+            # If there's no link we still send a None variables to the database
+            icon_link = None
+
     # Remove tags that are not relevant for visible text
     for tag in soup(["script", "style", "head", "meta", "noscript"]):
         tag.decompose()
@@ -510,6 +530,7 @@ def determine_language(text):
         - Determine how long this process takes with long documents, and if it's a noticeable slowdown experiment with only passing a part of the page for detection
     """
 
+    # THis bullshit crashes sometimes, usually because the text is too short or some other bullcrap
     try:
         return detect(text)
     except LangDetectException:
@@ -796,7 +817,8 @@ def clean_links(raw_links):
             clean_link = clean_link[:-1] #gets rid of the "/" if a link ends with it
             
         if clean_link not in cleaned:
-            if clean_link[0:4] == "http":
+            # Gets rid of links that aren't http(s) and are longer than the max url length (as dictated by the postgres length limits)
+            if clean_link[0:4] == "http" and len(clean_link) <= MAX_URL_LENGTH:
                 cleaned.append(clean_link)
 
     return cleaned
@@ -812,6 +834,11 @@ def store(content, url):
     # No database available (e.g. --nodb debugging run): nothing below this point can run
     # without a connection, so bail out before any DB access.
     if NODB: return
+
+    # If the url is longer than we can store fail storing the whole thing, there's no point in storing page information is we can't store the primary key which connects the information (the url)
+    if len(url) > MAX_URL_LENGTH:
+        info_print(f"URL longer than {MAX_URL_LENGTH} chars, not storing {url[:80]}...")
+        return
 
     load_static_token_maps()
 
@@ -866,6 +893,8 @@ def store(content, url):
     bigram_list = tokens[1] if tokens and len(tokens) > 1 else []
     trigram_list = tokens[2] if tokens and len(tokens) > 2 else []
     prefix_list = tokens[3] if tokens and len(tokens) > 3 else []
+    word_list = [w for w in word_list if 0 < len(w) <= MAX_TOKEN_LENGTH]
+    prefix_list = [p for p in prefix_list if 0 < len(p) <= MAX_TOKEN_LENGTH]
     words = set(word_list)
     bigrams = set(bigram_list)
     trigrams = set(trigram_list)
@@ -877,6 +906,12 @@ def store(content, url):
     cur = conn.cursor()
 
     #debug_print("Getting SQL connection and cursor:")
+
+    # Cut down to title and url lengths. Probably shouldn't store the icon link if it's concatenated and thus doesn't work but it's 11:44pm and I'm tired
+    if title:
+        title = title[:MAX_TITLE_LENGTH]
+    if icon_link and len(icon_link) > MAX_URL_LENGTH:
+        icon_link = None
 
     # Upsert the URL and get its id. Use RETURNING id when inserting; else SELECT.
     cur.execute("INSERT INTO urls (url, title, icon_link) VALUES (%s, %s, %s) ON CONFLICT (url) DO NOTHING RETURNING id;", (url, title, icon_link))
@@ -921,10 +956,7 @@ def store(content, url):
         
     if links:
         extra_vals = [(url, l) for l in links]
-        extras.execute_values(cur,
-            "INSERT INTO urls_references (url, referenced_domain) VALUES %s ON CONFLICT (url) DO NOTHING;",
-            extra_vals,
-            template=None)
+        extras.execute_values(cur, "INSERT INTO urls_references (url, referenced_domain) VALUES %s ON CONFLICT DO NOTHING;", extra_vals, template=None)
 
 
     # Fetch ids for all tokens in bulk

@@ -50,9 +50,9 @@ parser.add_argument("-ndb", "--nodb", action='store_true', help="Don't use redis
 args = parser.parse_args()
 
 if args.nodb and not (args.url or args.file):
-    raise("--nodb option must be used with --url or --file flags")
+    raise ("--nodb option must be used with --url or --file flags")
 elif args.url and args.file:
-    raise("Cannot use both --file and --url flags at the same time")
+    raise ("Cannot use both --file and --url flags at the same time")
 
 # Communicates the nodb flag to utils.py for all of the log() functions because I'm lazy
 utils.NODB = args.nodb
@@ -114,6 +114,7 @@ while True:
 
         else:
             utils.enqueue_urls(queue_return_to_db)
+            queue_return_to_db = []
 
             local_queue = utils.get_next_urls(LOCAL_QUEUE_LENGTH)
         
@@ -124,9 +125,9 @@ while True:
     # This loop is for going through the local_queue that we downloaded from the queue in the database until we find a url that is not of the same domain as the site scraped in the last iteration of this scraper and not in the redis db (thus not scraped in the past 10 seconds)
     # TODO: This doesn't need to be two separate if/else statements, make them instead if ___ and ___ and ____ in one statement
     # TODO: Add checking if the url is in the local cached sqlite3 db here too, it currently happens later but that's dumb
-    for i in local_queue:
+    url = ""
+    for i in list(local_queue):
         base_domain = urlparse(i).hostname
-        url = ""
 
         if base_domain != prev_base_domain:
             # Case 1: Base domain of the current url is NOT the same as the one scraped in the previous iteration. Thus, we check if the domain is in the redis db
@@ -171,10 +172,11 @@ while True:
 
 
     # ------------- Scraping
-    
+
     utils.log(f"Starting scraping {url}")
     utils.debug_print("")
     url_scraping_timer = time.time()
+    page_not_in_english = False
 
     if not args.nodb:
         ## TODO: is_domain_blocked checks if the url is in the main postgres db table for opted-out domains, domain_free_for_scraping checks if the domain is in the redis db, we should talk about whether we need two of them, or if we should just add the opted-out domains to the redis db
@@ -204,15 +206,8 @@ while True:
         continue
 
     page_data = utils.extract_data_from_html(raw_html, url) #[combined_text, links, title, icon_link]
-    # trafilatura needs the raw HTML to locate the main content — extract_data_from_html
-    # already stripped the tags, so page_data[0] is plain text and trafilatura would
-    # return None on it. Feed it the raw page instead.
     page_data[0] = trafilatura.extract(raw_html)
 
-    # trafilatura.extract() returns None when it can't pull main text out of the
-    # page (nav-only pages, JS-rendered shells, etc.). There's nothing to
-    # language-detect, store or send in that case, so skip the text handling — but
-    # still fall through to the link processing below so we keep discovering URLs.
     if page_data[0]:
         # Check for english language
         if utils.determine_language(page_data[0]) != 'en':
@@ -239,7 +234,7 @@ while True:
             utils.send_page_text(WEB_TEXT_STORAGE_SERVER_ADDRESS, url, text=page_data[0], title=page_data[2])
 
     else:
-        utils.info_print(f"No extractable text, keeping links only {url}")
+        utils.info_print(f"No text found, keeping links only {url}")
 
     total_links = 0
 
@@ -254,14 +249,10 @@ while True:
     cleaned = page_data[1]
     
     # Batch add url references after cleaning
-    if cleaned and len(cleaned) > 1:
-        print(len(cleaned))
+    if cleaned and not args.nodb:
         current_domain = utils.get_base_domain(url)
 
-        if len(cleaned) > 1:
-            external_links = [link for link in cleaned if utils.get_base_domain(link) != current_domain]
-        elif utils.get_base_domain(cleaned[0]) != current_domain:
-            external_links = cleaned[0]
+        external_links = [link for link in cleaned if utils.get_base_domain(link) != current_domain]
 
         if external_links:
 
