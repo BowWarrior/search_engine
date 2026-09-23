@@ -299,7 +299,7 @@ def create_database():
                 
     CREATE TABLE IF NOT EXISTS url_token_counts (
         url_id INT PRIMARY KEY REFERENCES urls(id),
-        word_count INT NOT NULL,
+        word_count INT NOT NULL DEFAULT 1,
         bigram_count INT NOT NULL DEFAULT 0,
         trigram_count INT NOT NULL DEFAULT 0,
         prefix_count INT NOT NULL DEFAULT 0
