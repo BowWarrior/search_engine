@@ -22,7 +22,10 @@ import tokenizer
 import utils
 import time
 import os
+from dotenv import load_dotenv
 
+
+load_dotenv()
 DEBUG = "DEBUG" in os.environ
 
 def debug_print(text, text1=""):
@@ -102,7 +105,7 @@ def search(query):
                 COALESCE(tm.trigram_score, 0) AS trigram_score,
                 COALESCE(pm.prefix_score, 0) AS prefix_score,
                 utc.word_count AS word_count,
-                u.reference_count AS reference_count
+                u.reference_count AS reference_count,
                 u.reference_score AS reference_score
             FROM urls u
             JOIN url_token_counts utc ON utc.url_id = u.id
@@ -116,7 +119,7 @@ def search(query):
                 u.url,
                 u.title,
                 ((prefix_score + bigram_score + trigram_score + word_score + word_count) / word_count) AS relevance,
-                c.reference_count
+                c.reference_count,
                 c.reference_score
             FROM combined c
             JOIN urls u ON u.id = c.url_id
@@ -160,8 +163,8 @@ def search(query):
     debug_print("Time taken:", time.time() - start)
     results = cur.fetchall()
 
-    for url, title, score, relevance, reference_score, reference_count, ref_count in results:
-            debug_print(f"{url}  | title: {title} |  score: {score}  |  relevance: {relevance} | reference_score: {reference_score} |  reference_count: {reference_count} | reference_count: {ref_count}")
+    for url, title, score, relevance, reference_score, reference_count in results:
+            debug_print(f"{url}  | title: {title} |  score: {score}  |  relevance: {relevance} | reference_score: {reference_score} |  reference_count: {reference_count}")
 
     cur.close()
     conn.close()
@@ -169,5 +172,5 @@ def search(query):
 
 # Example usage:
 # query = input("Search query: ")
-#query = "jack hagen"
-#print(search(query))
+query = "Disney"
+print(search(query))
